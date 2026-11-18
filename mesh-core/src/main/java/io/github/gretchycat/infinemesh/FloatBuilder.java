@@ -8,4 +8,8 @@ final class FloatBuilder {
     }
     float[] array() { return Arrays.copyOf(values,size); }
     int size() { return size; }
+    void truncate(int count) {
+        if(count<0 || count>size) throw new IllegalArgumentException("Invalid geometry rollback");
+        size=count;
+    }
 }

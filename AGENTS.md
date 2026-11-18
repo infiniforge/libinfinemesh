@@ -5,7 +5,8 @@ Keep mesh-core free of Android and application dependencies. Host apps own URI
 loading, lifecycle, controls, preview clocks and settings; mesh-android supplies
 reusable rendering and gestures. Document decoder dialects and resource limits.
 Ignore unknown G-code commands as requested by the user, keep a warning, and
-continue supported simulation. Malformed supported commands still report errors.
+continue supported simulation. Invalid text/commands are skipped with a warning
+and without retaining partial machine-state changes. Budgets and cancellation remain fatal.
 Keep all functionality read-only. New format support belongs behind public decoder
 APIs; texture support will require a documented material/resource contract.
 Run ./build.sh for core tests and the Android AAR; run JVM-only tests with

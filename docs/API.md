@@ -8,7 +8,8 @@ Package: `io.github.gretchycat.infinemesh`.
 `load(InputStream, displayName, mime, DecodeLimits)` from a worker. The caller owns
 and closes the stream. Inputs are bounded before decode; invalid/unsupported data
 throws IOException. Registered decoders use filename, MIME or a bounded prefix;
-STL recognizes textual `solid` prefixes, while binary STL needs an STL name/MIME.
+STL recognizes textual `solid` prefixes when no known model identity is supplied;
+binary STL needs an STL name/MIME. A known G-code identity outranks prefix text.
 Supply a custom ordered `List<ModelDecoder>` for explicit extension. Each decoder
 receives bounded encoded bytes and the caller's resource budgets.
 
@@ -39,7 +40,11 @@ accepted but not simulated and emit a warning; M117/118 display messages are
 ignored. Unknown G/M/T commands, non-XY plane commands, extra tools and firmware macros
 are skipped with one deduplicated warning; their arguments do not alter modal
 position/feed. Supported commands following them continue to simulate. Radius-form
-arcs and malformed supported commands still report errors.
+arcs, malformed supported commands and invalid text are skipped with a warning.
+Skipped blocks retain no partial position, feed, modal or geometry changes. Later
+valid blocks (including those on the same line) continue. I/O failures, cancellation
+and decode/segment budgets still fail the load. Files without any previewable
+motion report that no motion was found.
 All previews warn about missing acceleration, machine state and thermal timing.
 Checksums are ignored; semicolon/parenthesized comments and line numbers work.
 
@@ -71,7 +76,7 @@ surface/printed path geometry. Travel is gray and the head amber.
 
 ## Extension and compatibility
 
-Current API version: 0.2.0. Only triangle soup and toolpaths are represented.
+Current API version: 0.2.1. Only triangle soup and toolpaths are represented.
 Indexed meshes, scenes, texture resources, UVs and materials need future public
 API extensions; do not treat the decoder registry as existing texture support.
 No application identity, file picker or private app data belongs to this library.

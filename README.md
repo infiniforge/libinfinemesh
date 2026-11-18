@@ -1,6 +1,6 @@
 # libinfinemesh
 
-Reusable read-only 3D model and G-code preview library, version **0.2.0**.
+Reusable read-only 3D model and G-code preview library, version **0.2.1**.
 
 - `mesh-core`: Java 17 immutable geometry, bounds, flat/Gouraud normals, ASCII/binary
   STL, Cartesian single-extruder G-code toolpaths, timing and decoder registry.
@@ -26,11 +26,11 @@ This runs core and camera-depth JVM tests plus Android lint and builds the Andro
 `sdk.dir` is also supported; Termux uses installed `aapt2`. No application or sibling
 checkout is needed. For JVM-only builds without an SDK, run
 `./gradlew :mesh-core:test -PmeshCoreOnly --max-workers=1 --console=plain`.
-Build output: `mesh-core/build/libs/mesh-core-0.2.0.jar` when running `:mesh-core:jar`,
+Build output: `mesh-core/build/libs/mesh-core-0.2.1.jar` when running `:mesh-core:jar`,
 and `mesh-android/build/outputs/aar/mesh-android-debug.aar`. Source: [infiniforge/libinfinemesh](https://github.com/infiniforge/libinfinemesh).
 
 Consume the included build with coordinates
-`io.github.gretchycat.libinfinemesh:mesh-android:0.2.0` or `mesh-core:0.2.0`.
+`io.github.gretchycat.libinfinemesh:mesh-android:0.2.1` or `mesh-core:0.2.1`.
 [Maven artifacts are not published yet.](docs/API.md)
 [Documentation](docs/README.md) · [MIT license](LICENSE.md)
 

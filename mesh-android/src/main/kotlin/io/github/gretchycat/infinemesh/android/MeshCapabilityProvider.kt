@@ -22,7 +22,7 @@ class MeshThumbnailHandler : EncodedImageExtractor {
             FormatSupport(mimeTypes = ModelFormats.GCODE_MIMES - "text/x-gcode")
         ),
         operations = setOf(Operations.DECODE, Operations.VIEW, Operations.THUMBNAIL),
-        limitations = listOf("Read-only preview; unknown G-code commands are ignored, not executed.",
+        limitations = listOf("Read-only preview; unknown commands and invalid G-code text are skipped.",
             "Thumbnails: 16 MiB input, 100000 triangles / 200000 segments, 512 pixels, bounded raster work."),
         priority = 80,
         attributes = mapOf("viewerTarget" to "external", "viewerPackage" to "com.infinimesh", "presentation" to "model")

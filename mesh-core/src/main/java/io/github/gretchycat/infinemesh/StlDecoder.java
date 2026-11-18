@@ -6,8 +6,9 @@ import java.util.*;
 
 public final class StlDecoder implements ModelDecoder {
     public boolean supports(String name,String mime,byte[] prefix) {
-        return "model/stl".equals(ModelFormats.mimeType(name,mime)) ||
-            new String(prefix,StandardCharsets.US_ASCII).trim().startsWith("solid");
+        String kind=ModelFormats.mimeType(name,mime);
+        return "model/stl".equals(kind) || (kind==null &&
+            new String(prefix,StandardCharsets.US_ASCII).trim().startsWith("solid"));
     }
     public ModelDocument decode(byte[] data,DecodeLimits limits) throws IOException {
         // A binary STL header may itself start with 'solid'. Exact byte count wins.

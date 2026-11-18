@@ -103,6 +103,25 @@ public class MeshCoreTest {
         assertThrows(IOException.class,()->gcode("G1 X1 X2\n"));
         assertThrows(IOException.class,()->gcode("G2 X10 R5\n"));
     }
+    @Test public void invalidTextAndCommandsDoNotAbortValidMotion() throws Exception {
+        ModelDocument doc=gcode("X999\n123? invalid\nG1 X10 F600\nG1 Xnan G1 X20\nG1 X1 X2\nG1 X900 F0\nG2 X900 R5 F1\nX30\nG4 S-1\nG1 X40 trailing junk\nG1 X40\n");
+        assertEquals(4,doc.toolpath.segmentCount());
+        assertEquals(4,doc.toolpath.durationSeconds(),1e-6);
+        assertArrayEquals(new float[]{40,0,0},doc.toolpath.headAt(99),0);
+        assertEquals(1,doc.warnings.stream().filter(w->w.startsWith("Invalid G-code text")).count());
+    }
+    @Test public void invalidMovesRetainPriorFeedAndMotionMode() throws Exception {
+        Toolpath t=gcode("G1 X10 F600\nG20\nG92 X1 Y"+"9".repeat(307)+"\nG21\nG2 X20 R5 F1\nX20\nG1 X"+"9".repeat(350)+" F2\nX30\nG1 Y0 I1 BAD\nX40\n").toolpath;
+        assertEquals(4,t.segmentCount());assertEquals(4,t.durationSeconds(),1e-6);
+        assertArrayEquals(new float[]{40,0,0},t.headAt(99),0);
+    }
+    @Test public void invalidOnlyFilesAndResourceFailuresStillHaveUsefulErrors() throws Exception {
+        assertThrows(IOException.class,()->gcode("invalid text\nG1 Xnan\n"));
+        assertThrows(IOException.class,()->new GcodeDecoder().decode("G1 X10\nG2 I-10 J0\n".getBytes(),new DecodeLimits(1000,1,2)));
+        Thread.currentThread().interrupt();
+        try { assertThrows(IOException.class,()->gcode("junk\nG1 X1\n")); }
+        finally {Thread.interrupted();}
+    }
     @Test public void modelAliasesShareTheSameAssociation() {
         for(String ext:ModelFormats.GCODE_EXTENSIONS) assertEquals("text/x-gcode",ModelFormats.mimeType("part."+ext.toUpperCase(Locale.ROOT),"text/plain"));
         assertEquals("model/stl",ModelFormats.mimeType("part.STL","application/octet-stream"));
@@ -111,6 +130,11 @@ public class MeshCoreTest {
     @Test public void decodeBudgetsAreEnforced() {
         assertThrows(IOException.class,()->new GcodeDecoder().decode("G1 X1\nG1 X2\n".getBytes(),new DecodeLimits(100,1,1)));
         assertThrows(IOException.class,()->new ModelLoader().load(new ByteArrayInputStream(new byte[101]),"x.stl","",new DecodeLimits(100,1,1)));
+    }
+    @Test public void gcodeIdentityOutranksInvalidTextResemblingAnotherFormat() throws Exception {
+        byte[] text="solid invalid header\n???\nG1 X10 F600\n".getBytes(StandardCharsets.US_ASCII);
+        assertEquals("G-code",new ModelLoader().load(new ByteArrayInputStream(text),"part.gcode","text/plain",LIMITS).format);
+        assertEquals("G-code",new ModelLoader().load(new ByteArrayInputStream(text),"opaque","application/x-gcode",LIMITS).format);
     }
     @Test public void loaderUsesNamesMimeAndCustomDecoders() throws Exception {
         assertNotNull(new ModelLoader().load(new ByteArrayInputStream(binary("binary",1)),"TEST.STL","",LIMITS).mesh);

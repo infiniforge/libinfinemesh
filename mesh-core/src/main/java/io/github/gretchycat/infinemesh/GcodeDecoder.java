@@ -39,7 +39,7 @@ public final class GcodeDecoder implements ModelDecoder {
                 if(command!=null) s.block(command,line.substring(body));
                 else if(line.matches("[A-Z_]{2,}.*")) s.ignored(); // firmware macros
                 else if(s.motion!=null) s.block(s.motion,line);
-                else throw new IOException("Coordinates without a motion mode");
+                else s.invalid();
             }
         } catch(IllegalArgumentException e) { throw new IOException("G-code line "+lineNo+": "+e.getMessage(),e); }
           catch(IOException e) { throw new IOException("G-code line "+lineNo+": "+e.getMessage(),e); }
@@ -47,6 +47,10 @@ public final class GcodeDecoder implements ModelDecoder {
         boolean[] extrude=new boolean[s.extrusions.size()]; double[] ends=new double[s.ends.size()];
         for(int i=0;i<ends.length;i++) { extrude[i]=s.extrusions.get(i); ends[i]=s.ends.get(i); }
         return new ModelDocument("G-code",null,new Toolpath(s.points.array(),extrude,ends),new ArrayList<>(s.warnings));
+    }
+    /** Malformed/unsupported text can be skipped; I/O, cancellation and budgets remain fatal. */
+    private static final class InvalidCommandException extends IOException {
+        InvalidCommandException(String message) { super(message); }
     }
     private static final class State {
         final DecodeLimits limits; final FloatBuilder points=new FloatBuilder();
@@ -59,6 +63,19 @@ public final class GcodeDecoder implements ModelDecoder {
             warnings.add("Kinematic preview: assumes origin, one extruder, and 1200 mm/min until F is set. Acceleration, heating, leveling and machine limits are not simulated.");
         }
         void ignored() { warnings.add("Unsupported G-code commands or parameters were ignored; motion and machine-state changes may be omitted."); }
+        void invalid() { warnings.add("Invalid G-code text or commands were ignored; preview may omit motion."); }
+        private record Checkpoint(double[] position, double[] originOffset, double units, double feed,
+            double time, boolean absolute, Boolean eAbsolute, String motion, int segments, int pointCount) {}
+        Checkpoint checkpoint() {
+            return new Checkpoint(pos.clone(),offset.clone(),units,feed,time,absolute,eAbsolute,motion,ends.size(),points.size());
+        }
+        void restore(Checkpoint saved) {
+            System.arraycopy(saved.position(),0,pos,0,4); System.arraycopy(saved.originOffset(),0,offset,0,4);
+            units=saved.units(); feed=saved.feed(); time=saved.time(); absolute=saved.absolute();
+            eAbsolute=saved.eAbsolute(); motion=saved.motion();
+            ends.subList(saved.segments(),ends.size()).clear();
+            extrusions.subList(saved.segments(),extrusions.size()).clear(); points.truncate(saved.pointCount());
+        }
         boolean supported(String cmd) {
             double code=Double.parseDouble(cmd.substring(1));
             if(code!=Math.rint(code) || code<0 || code>Integer.MAX_VALUE) return false;
@@ -71,18 +88,23 @@ public final class GcodeDecoder implements ModelDecoder {
             };
         }
         void block(String cmd,String body) throws IOException {
+            Checkpoint saved=checkpoint();
+            try { strictBlock(cmd,body); }
+            catch(InvalidCommandException | IllegalArgumentException invalid) { restore(saved); invalid(); }
+        }
+        void strictBlock(String cmd,String body) throws IOException {
             if(!supported(cmd)) { ignored();return; }
             int n=(int)Double.parseDouble(cmd.substring(1));
             if(cmd.charAt(0)=='M' && IGNORED_MACHINE_COMMANDS.contains(n)) { command(cmd,Collections.emptyMap());return; }
             Matcher words=WORD.matcher(body);int end=0;Map<Character,Double> p=new HashMap<>();
             while(words.find()) {
-                if(!body.substring(end,words.start()).trim().isEmpty()) throw new IOException("Invalid parameter in "+cmd);
+                if(!body.substring(end,words.start()).trim().isEmpty()) throw new InvalidCommandException("Invalid parameter in "+cmd);
                 char letter=words.group(1).charAt(0);double value=Double.parseDouble(words.group(2));
-                if(!Double.isFinite(value)) throw new IOException("Non-finite G-code value");
-                if(p.put(letter,value)!=null) throw new IOException("Duplicate G-code parameter "+letter);
+                if(!Double.isFinite(value)) throw new InvalidCommandException("Non-finite G-code value");
+                if(p.put(letter,value)!=null) throw new InvalidCommandException("Duplicate G-code parameter "+letter);
                 end=words.end();
             }
-            if(!body.substring(end).trim().isEmpty()) throw new IOException("Invalid parameter in "+cmd);
+            if(!body.substring(end).trim().isEmpty()) throw new InvalidCommandException("Invalid parameter in "+cmd);
             command(cmd,p);
         }
         void command(String cmd,Map<Character,Double> p) throws IOException {
@@ -101,13 +123,17 @@ public final class GcodeDecoder implements ModelDecoder {
                 case 'G' -> {
                     switch(n) {
                         case 0,1,2,3 -> { motion="G"+n; move(n,p); }
-                        case 4 -> { double delay=p.getOrDefault('S',p.getOrDefault('P',0.0)/1000.0); if(delay<0) throw new IOException("Negative dwell"); add(pos.clone(),false,delay); }
+                        case 4 -> { double delay=p.getOrDefault('S',p.getOrDefault('P',0.0)/1000.0); if(delay<0) throw new InvalidCommandException("Negative dwell"); add(pos.clone(),false,delay); }
                         case 17 -> { /* XY plane */ }
                         case 20 -> units=25.4;
                         case 21 -> units=1;
                         case 90 -> { absolute=true; eAbsolute=null; }
                         case 91 -> { absolute=false; eAbsolute=null; }
-                        case 92 -> { for(int a=0;a<4;a++) { char axis="XYZE".charAt(a); if(p.containsKey(axis)) offset[a]=pos[a]-p.get(axis)*units; } }
+                        case 92 -> { for(int a=0;a<4;a++) { char axis="XYZE".charAt(a); if(p.containsKey(axis)) {
+                            double value=pos[a]-p.get(axis)*units;
+                            if(!Double.isFinite(value)) throw new InvalidCommandException("Invalid origin offset");
+                            offset[a]=value;
+                        } } }
                         case 28 -> {
                             warnings.add("G28 homing is approximated at XYZ zero; actual machine homing positions are unknown.");
                             double[] target=pos.clone(); boolean all=!p.containsKey('X')&&!p.containsKey('Y')&&!p.containsKey('Z');
@@ -122,14 +148,14 @@ public final class GcodeDecoder implements ModelDecoder {
         }
         void move(int mode,Map<Character,Double> p) throws IOException {
             for(char key:p.keySet()) if("XYZEFIJR".indexOf(key)<0) ignored();
-            if(p.containsKey('F')) { feed=p.get('F')*units; if(feed<=0 || !Double.isFinite(feed)) throw new IOException("Feedrate must be positive"); }
+            if(p.containsKey('F')) { feed=p.get('F')*units; if(feed<=0 || !Double.isFinite(feed)) throw new InvalidCommandException("Feedrate must be positive"); }
             double[] target=pos.clone();
             for(int a=0;a<4;a++) {
                 char axis="XYZE".charAt(a);
                 if(p.containsKey(axis)) {
                     boolean abs=a==3 && eAbsolute!=null ? eAbsolute : absolute;
                     target[a]=p.get(axis)*units+(abs?offset[a]:pos[a]);
-                    if(!Double.isFinite(target[a]) || Math.abs(target[a])>Float.MAX_VALUE) throw new IOException("Coordinate outside preview range");
+                    if(!Double.isFinite(target[a]) || Math.abs(target[a])>Float.MAX_VALUE) throw new InvalidCommandException("Coordinate outside preview range");
                 }
             }
             boolean extrude=target[3]>pos[3] && mode!=0;
@@ -140,12 +166,12 @@ public final class GcodeDecoder implements ModelDecoder {
                 else System.arraycopy(target,0,pos,0,4);
                 return;
             }
-            if(p.containsKey('R')) throw new IOException("Radius-form arcs are not yet supported; use XY I/J arcs");
-            if(!p.containsKey('I') && !p.containsKey('J')) throw new IOException("Arc requires I/J center offsets");
+            if(p.containsKey('R')) throw new InvalidCommandException("Radius-form arcs are not yet supported; use XY I/J arcs");
+            if(!p.containsKey('I') && !p.containsKey('J')) throw new InvalidCommandException("Arc requires I/J center offsets");
             double sx=pos[0], sy=pos[1], sz=pos[2], se=pos[3];
             double cx=sx+p.getOrDefault('I',0.0)*units, cy=sy+p.getOrDefault('J',0.0)*units;
             double radius=Math.hypot(sx-cx,sy-cy), endRadius=Math.hypot(target[0]-cx,target[1]-cy);
-            if(radius==0 || Math.abs(radius-endRadius)>Math.max(0.01,radius*0.001)) throw new IOException("Invalid arc center/radius");
+            if(radius==0 || Math.abs(radius-endRadius)>Math.max(0.01,radius*0.001)) throw new InvalidCommandException("Invalid arc center/radius");
             double start=Math.atan2(sy-cy,sx-cx), sweep=Math.atan2(target[1]-cy,target[0]-cx)-start;
             if(mode==2) { while(sweep>=-1e-12) sweep-=Math.PI*2; }
             else { while(sweep<=1e-12) sweep+=Math.PI*2; }
@@ -162,8 +188,8 @@ public final class GcodeDecoder implements ModelDecoder {
         }
         void add(double[] target,boolean extrude,double duration) throws IOException {
             if(ends.size()>=limits.maxSegments()) throw new IOException("G-code exceeds preview segment limit");
-            if(!Double.isFinite(duration) || duration<0 || !Double.isFinite(time+duration)) throw new IOException("Invalid preview duration");
-            for(int a=0;a<3;a++) if(!Double.isFinite(target[a]) || Math.abs(target[a])>Float.MAX_VALUE) throw new IOException("Coordinate outside preview range");
+            if(!Double.isFinite(duration) || duration<0 || !Double.isFinite(time+duration)) throw new InvalidCommandException("Invalid preview duration");
+            for(int a=0;a<3;a++) if(!Double.isFinite(target[a]) || Math.abs(target[a])>Float.MAX_VALUE) throw new InvalidCommandException("Coordinate outside preview range");
             points.add((float)pos[0],(float)pos[1],(float)pos[2],(float)target[0],(float)target[1],(float)target[2]);
             extrusions.add(extrude); time+=duration; ends.add(time); System.arraycopy(target,0,pos,0,4);
         }
