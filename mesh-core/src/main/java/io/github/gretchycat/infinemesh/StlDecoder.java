@@ -6,7 +6,7 @@ import java.util.*;
 
 public final class StlDecoder implements ModelDecoder {
     public boolean supports(String name,String mime,byte[] prefix) {
-        return name.toLowerCase(Locale.ROOT).endsWith(".stl") || mime.equals("model/stl") || mime.equals("application/sla") ||
+        return "model/stl".equals(ModelFormats.mimeType(name,mime)) ||
             new String(prefix,StandardCharsets.US_ASCII).trim().startsWith("solid");
     }
     public ModelDocument decode(byte[] data,DecodeLimits limits) throws IOException {

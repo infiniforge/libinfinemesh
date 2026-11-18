@@ -1,6 +1,8 @@
 #!/usr/bin/env sh
 set -eu
 cd -- "$(dirname -- "$0")"
+python3 scripts/fetch-dependencies.py
+python3 scripts/fetch-dependencies.py --check
 MESH_SDK=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}
 if [ -z "$MESH_SDK" ] && [ -f local.properties ]; then
     MESH_SDK=$(sed -n 's/^[[:space:]]*sdk.dir[[:space:]]*[:=][[:space:]]*//p' local.properties | head -n 1)

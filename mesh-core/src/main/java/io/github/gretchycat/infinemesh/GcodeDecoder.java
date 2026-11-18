@@ -8,11 +8,10 @@ import java.util.regex.*;
 /** Common Cartesian FDM preview dialect. Never connects to a machine. */
 public final class GcodeDecoder implements ModelDecoder {
     private static final Set<Integer> IGNORED_MACHINE_COMMANDS = new HashSet<>(Arrays.asList(18,84,104,109,140,190,106,107,105,114,115,201,203,204,205,400,900));
+    private static final Pattern COMMAND=Pattern.compile("\"[^\"]*\"|'[^']*'|(?<![A-Z_])([GMT])\\s*([-+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+))");
     private static final Pattern WORD=Pattern.compile("([A-Z])\\s*([-+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+))");
     public boolean supports(String name,String mime,byte[] prefix) {
-        String n=name.toLowerCase(Locale.ROOT);
-        return n.endsWith(".gcode") || n.endsWith(".gco") || n.endsWith(".g") || n.endsWith(".gc") ||
-            mime.equals("text/x-gcode") || mime.equals("application/x-gcode");
+        return "text/x-gcode".equals(ModelFormats.mimeType(name,mime));
     }
     public ModelDocument decode(byte[] bytes,DecodeLimits limits) throws IOException {
         State s=new State(limits); int lineNo=0;
@@ -27,24 +26,20 @@ public final class GcodeDecoder implements ModelDecoder {
                 // Display text has no effect on motion, and need not be numeric.
                 if(line.matches("M(?:117|118)\\b.*")) continue;
                 if(line.startsWith("G28")) line=line.replaceAll("([XYZ])(?=\\s|$)","$10");
-                Matcher m=WORD.matcher(line); int end=0; String command=null;
-                Map<Character,Double> parameters=new HashMap<>();
-                while(m.find()) {
-                    if(!line.substring(end,m.start()).trim().isEmpty()) throw new IOException("Non-numeric or invalid G-code word");
-                    char letter=m.group(1).charAt(0); double value=Double.parseDouble(m.group(2));
-                    if(!Double.isFinite(value)) throw new IOException("Non-finite G-code value");
-                    if(letter=='G' || letter=='M' || letter=='T') {
-                        if(command!=null) { s.command(command,parameters); parameters.clear(); }
-                        command=letter+m.group(2);
-                    } else {
-                        if(parameters.put(letter,value)!=null) throw new IOException("Duplicate G-code parameter "+letter);
+                Matcher commands=COMMAND.matcher(line);
+                String command=null;int body=0;
+                while(commands.find()) {
+                    if(commands.group(1)==null) continue; // quoted strings are arguments, not commands
+                    if(command!=null) s.block(command,line.substring(body,commands.start()));
+                    else if(!line.substring(0,commands.start()).trim().isEmpty()) {
+                        s.ignored();break;
                     }
-                    end=m.end();
+                    command=commands.group(1)+commands.group(2);body=commands.end();
                 }
-                if(!line.substring(end).trim().isEmpty()) throw new IOException("Invalid G-code text");
-                if(command==null && !parameters.isEmpty()) command=s.motion;
-                if(command==null) throw new IOException("Coordinates without a motion mode");
-                s.command(command,parameters);
+                if(command!=null) s.block(command,line.substring(body));
+                else if(line.matches("[A-Z_]{2,}.*")) s.ignored(); // firmware macros
+                else if(s.motion!=null) s.block(s.motion,line);
+                else throw new IOException("Coordinates without a motion mode");
             }
         } catch(IllegalArgumentException e) { throw new IOException("G-code line "+lineNo+": "+e.getMessage(),e); }
           catch(IOException e) { throw new IOException("G-code line "+lineNo+": "+e.getMessage(),e); }
@@ -63,18 +58,45 @@ public final class GcodeDecoder implements ModelDecoder {
             this.limits=limits;
             warnings.add("Kinematic preview: assumes origin, one extruder, and 1200 mm/min until F is set. Acceleration, heating, leveling and machine limits are not simulated.");
         }
+        void ignored() { warnings.add("Unsupported G-code commands or parameters were ignored; motion and machine-state changes may be omitted."); }
+        boolean supported(String cmd) {
+            double code=Double.parseDouble(cmd.substring(1));
+            if(code!=Math.rint(code) || code<0 || code>Integer.MAX_VALUE) return false;
+            int n=(int)code;
+            return switch(cmd.charAt(0)) {
+                case 'G' -> n<=4 || n==17 || n==20 || n==21 || n==28 || n==90 || n==91 || n==92;
+                case 'M' -> n==82 || n==83 || IGNORED_MACHINE_COMMANDS.contains(n);
+                case 'T' -> n==0;
+                default -> false;
+            };
+        }
+        void block(String cmd,String body) throws IOException {
+            if(!supported(cmd)) { ignored();return; }
+            int n=(int)Double.parseDouble(cmd.substring(1));
+            if(cmd.charAt(0)=='M' && IGNORED_MACHINE_COMMANDS.contains(n)) { command(cmd,Collections.emptyMap());return; }
+            Matcher words=WORD.matcher(body);int end=0;Map<Character,Double> p=new HashMap<>();
+            while(words.find()) {
+                if(!body.substring(end,words.start()).trim().isEmpty()) throw new IOException("Invalid parameter in "+cmd);
+                char letter=words.group(1).charAt(0);double value=Double.parseDouble(words.group(2));
+                if(!Double.isFinite(value)) throw new IOException("Non-finite G-code value");
+                if(p.put(letter,value)!=null) throw new IOException("Duplicate G-code parameter "+letter);
+                end=words.end();
+            }
+            if(!body.substring(end).trim().isEmpty()) throw new IOException("Invalid parameter in "+cmd);
+            command(cmd,p);
+        }
         void command(String cmd,Map<Character,Double> p) throws IOException {
             double code=Double.parseDouble(cmd.substring(1));
-            if(code!=Math.rint(code)) throw new IOException("Unsupported command "+cmd);
+            if(code!=Math.rint(code)) { ignored();return; }
             int n=(int)code;
             switch(cmd.charAt(0)) {
-                case 'T' -> { if(n!=0) throw new IOException("Multiple tools are not supported"); }
+                case 'T' -> { if(n!=0) ignored(); }
                 case 'M' -> {
                     if(n==82) eAbsolute=true;
                     else if(n==83) eAbsolute=false;
                     else if(IGNORED_MACHINE_COMMANDS.contains(n))
                         warnings.add("Machine settings and thermal/fan commands are omitted from preview timing.");
-                    else throw new IOException("Unsupported command "+cmd);
+                    else ignored();
                 }
                 case 'G' -> {
                     switch(n) {
@@ -92,14 +114,14 @@ public final class GcodeDecoder implements ModelDecoder {
                             for(int a=0;a<3;a++) if(all || p.containsKey("XYZ".charAt(a))) { target[a]=0; offset[a]=0; }
                             add(target,false,distance(pos,target)*60/feed);
                         }
-                        default -> throw new IOException("Unsupported command "+cmd+"; preview stopped to avoid showing an incorrect path");
+                        default -> ignored();
                     }
                 }
-                default -> throw new IOException("Unsupported command "+cmd);
+                default -> ignored();
             }
         }
         void move(int mode,Map<Character,Double> p) throws IOException {
-            for(char key:p.keySet()) if("XYZEFIJR".indexOf(key)<0) throw new IOException("Unsupported motion parameter "+key);
+            for(char key:p.keySet()) if("XYZEFIJR".indexOf(key)<0) ignored();
             if(p.containsKey('F')) { feed=p.get('F')*units; if(feed<=0 || !Double.isFinite(feed)) throw new IOException("Feedrate must be positive"); }
             double[] target=pos.clone();
             for(int a=0;a<4;a++) {

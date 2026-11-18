@@ -36,7 +36,10 @@ G90/G91 clear M82/M83 override as in Marlin. Retraction, dwell and extrusion-onl
 moves retain preview time. Default feed is 1200 mm/min. G0 uses the current feed.
 Machine M18/84/104/109/140/190/106/107/105/114/115/201/203/204/205/400/900 are
 accepted but not simulated and emit a warning; M117/118 display messages are
-ignored. Unknown commands, radius arcs, non-XY planes and multiple tools fail.
+ignored. Unknown G/M/T commands, non-XY plane commands, extra tools and firmware macros
+are skipped with one deduplicated warning; their arguments do not alter modal
+position/feed. Supported commands following them continue to simulate. Radius-form
+arcs and malformed supported commands still report errors.
 All previews warn about missing acceleration, machine state and thermal timing.
 Checksums are ignored; semicolon/parenthesized comments and line numbers work.
 
@@ -68,8 +71,30 @@ surface/printed path geometry. Travel is gray and the head amber.
 
 ## Extension and compatibility
 
-Current API version: 0.1.1. Only triangle soup and toolpaths are represented.
+Current API version: 0.2.0. Only triangle soup and toolpaths are represented.
 Indexed meshes, scenes, texture resources, UVs and materials need future public
 API extensions; do not treat the decoder registry as existing texture support.
 No application identity, file picker or private app data belongs to this library.
 Maven publishing is future work; current consumers use pinned source composites.
+
+## Thumbnails and format identities
+
+`ModelFormats` exposes supported MIME aliases, G-code suffixes (`gcode`, `gco`,
+`gc`, `g`, `ngc`) and canonical `mimeType(name, mime)` / `supports(name, mime)`.
+Suffixes are case insensitive and take priority over generic provider MIME hints.
+
+`ModelThumbnail.render(document, pixels[, cancellation])` produces immutable
+`Raster(width, height, argb)` pixels, with a transparent background, flat-lit
+isometric triangles and a depth buffer. Toolpaths show the complete travel and
+extrusion paths. Output size is 1..512; raster work is bounded to 24 million
+samples. Interrupts and the optional callback cancel rendering; callers handle
+IOException for budget failures and use a normal file icon fallback.
+
+`mesh-android` registers `MeshCapabilityProvider` through libinfinistream service
+discovery. `MeshThumbnailHandler` implements `EncodedImageExtractor`, borrows the
+input source (never closes it), decodes at most 16 MiB / 100,000 triangles /
+200,000 segments, then returns an owned PNG `ExtractedImage`. The host closes the
+result and source, owns scheduling/cache policy, and supplies URI permissions.
+Discovery is cheap and works without Android initialization; actual PNG encoding
+requires Android Bitmap APIs. Descriptors advertise only metadata candidates,
+not parser validation. Merge the CapabilityProvider service resource in hosts.

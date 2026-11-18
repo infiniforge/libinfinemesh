@@ -89,9 +89,24 @@ public class MeshCoreTest {
         ModelDocument d=gcode("; comment\nN1 G21*17\nM104 S200\nM117 Printing model\nG1 X10 (move) F600 ;ok\n");
         assertEquals(1,d.toolpath.segmentCount());assertTrue(d.warnings.size()>1);
     }
-    @Test public void unsupportedMotionAndBadNumbersNeverSilentlySkip() {
-        for(String code:List.of("G18\nG2 X10 I5\n","G1 X10\nG5 X20\n","G2 X10 R5\n","T1\nG1 X10\n","G1 X10 F0\n","G1 Xnan\n","G1 X10 Q4\n","G1 X1 X2\n"))
-            assertThrows(code,IOException.class,()->gcode(code));
+    @Test public void unknownCommandsAndMacrosDoNotAbortOrAlterModalState() throws Exception {
+        Toolpath path=gcode("G1 X10 F600\nM999 ARBITRARY TEXT\nG999 X900 F1\nG29.1 X999\nT1\nSTART_PRINT BED_TEMP=60\nX20\nG1 X30 M555 STRANGE G1 X40\n").toolpath;
+        assertEquals(4,path.segmentCount());assertEquals(4,path.durationSeconds(),1e-6);
+        assertArrayEquals(new float[]{40,0,0},path.headAt(99),0);
+    }
+    @Test public void ignoredCommandsAreReportedOnceAndExtraParametersAreIgnored() throws Exception {
+        ModelDocument d=gcode("G1 X10 Q123 F600\nM999 X100\nM999 Y200\nG1 X20\n");
+        assertEquals(2,d.toolpath.segmentCount());
+        assertEquals(1,d.warnings.stream().filter(w->w.contains("were ignored")).count());
+        assertThrows(IOException.class,()->gcode("G1 Xnan\n"));
+        assertThrows(IOException.class,()->gcode("G1 X10 F0\n"));
+        assertThrows(IOException.class,()->gcode("G1 X1 X2\n"));
+        assertThrows(IOException.class,()->gcode("G2 X10 R5\n"));
+    }
+    @Test public void modelAliasesShareTheSameAssociation() {
+        for(String ext:ModelFormats.GCODE_EXTENSIONS) assertEquals("text/x-gcode",ModelFormats.mimeType("part."+ext.toUpperCase(Locale.ROOT),"text/plain"));
+        assertEquals("model/stl",ModelFormats.mimeType("part.STL","application/octet-stream"));
+        assertFalse(ModelFormats.supports("part.txt","text/plain"));
     }
     @Test public void decodeBudgetsAreEnforced() {
         assertThrows(IOException.class,()->new GcodeDecoder().decode("G1 X1\nG1 X2\n".getBytes(),new DecodeLimits(100,1,1)));
