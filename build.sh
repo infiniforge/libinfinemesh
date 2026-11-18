@@ -16,4 +16,4 @@ if [ -n "${TERMUX_VERSION:-}" ]; then
     if [ -z "$MESH_AAPT2" ]; then echo "Install aapt2 with: pkg install aapt2" >&2; exit 1; fi
     set -- "-Pandroid.aapt2FromMavenOverride=$MESH_AAPT2" "$@"
 fi
-./gradlew :mesh-core:test :mesh-android:assembleDebug :mesh-android:lintDebug "$@"
+./gradlew :mesh-core:test :mesh-android:testDebugUnitTest :mesh-android:assembleDebug :mesh-android:lintDebug "$@"

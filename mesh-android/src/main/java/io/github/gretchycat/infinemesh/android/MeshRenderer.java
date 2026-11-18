@@ -17,13 +17,16 @@ final class MeshRenderer implements GLSurfaceView.Renderer {
         final boolean[] extrusion;
         final double[] ends;
         final double scale;
-        Scene(ModelDocument doc,FloatBuffer vertices,FloatBuffer flat,FloatBuffer smooth,FloatBuffer edges,FloatBuffer grid,float[] normalized,boolean[] extrusion,double[] ends,double scale) {
-            this.document=doc;this.vertices=vertices;this.flat=flat;this.smooth=smooth;this.edges=edges;this.grid=grid;this.normalized=normalized;this.extrusion=extrusion;this.ends=ends;this.scale=scale;
+        final float radius,gridRadius;
+        Scene(ModelDocument doc,FloatBuffer vertices,FloatBuffer flat,FloatBuffer smooth,FloatBuffer edges,FloatBuffer grid,float[] normalized,boolean[] extrusion,double[] ends,double scale,float radius,float gridRadius) {
+            this.document=doc;this.vertices=vertices;this.flat=flat;this.smooth=smooth;this.edges=edges;this.grid=grid;this.normalized=normalized;this.extrusion=extrusion;this.ends=ends;this.scale=scale;this.radius=radius;this.gridRadius=gridRadius;
         }
         static Scene prepare(ModelDocument doc) {
             Bounds b=doc.bounds(); double scale=2/Math.max(b.extent(),1e-12);
             float[] p=doc.mesh!=null?doc.mesh.positions():doc.toolpath.positions();
             for(int i=0;i<p.length;i++) p[i]=(float)(((double)p[i]-b.center(i%3))*scale);
+            float radius=0;
+            for(int i=0;i<p.length;i+=3) radius=Math.max(radius,(float)Math.sqrt((double)p[i]*p[i]+(double)p[i+1]*p[i+1]+(double)p[i+2]*p[i+2]));
             FloatBuffer vertices=buffer(p), flat=null,smooth=null,edges=null;
             if(doc.mesh!=null) {
                 flat=buffer(doc.mesh.normals(false)); smooth=buffer(doc.mesh.normals(true));
@@ -37,7 +40,7 @@ final class MeshRenderer implements GLSurfaceView.Renderer {
             FloatBuffer grid=allocate(21*12);
             for(int i=-10;i<=10;i++) { float v=i*0.15f; grid.put(new float[]{v,-1.5f,z,v,1.5f,z,-1.5f,v,z,1.5f,v,z}); }
             grid.position(0);
-            return new Scene(doc,vertices,flat,smooth,edges,grid,p,doc.toolpath==null?null:doc.toolpath.extrusion(),doc.toolpath==null?null:doc.toolpath.endSeconds(),scale);
+            return new Scene(doc,vertices,flat,smooth,edges,grid,p,doc.toolpath==null?null:doc.toolpath.extrusion(),doc.toolpath==null?null:doc.toolpath.endSeconds(),scale,radius,(float)Math.sqrt(4.5+z*z));
         }
     }
     private static FloatBuffer allocate(int count) { return ByteBuffer.allocateDirect(count*4).order(ByteOrder.nativeOrder()).asFloatBuffer(); }
@@ -48,7 +51,7 @@ final class MeshRenderer implements GLSurfaceView.Renderer {
     private final float[] projection=new float[16],view=new float[16],transform=new float[16],mv=new float[16],combined=new float[16];
     private final FloatBuffer dynamic=allocate(6);
     private final FloatBuffer emptyGrid=buffer(new float[]{-1,0,0,1,0,0,0,-1,0,0,1,0});
-    MeshView.Shading shading=MeshView.Shading.GOURAUD;
+    MeshView.Shading shading=MeshView.Shading.FLAT;
     int background=0xff17212b,color=0xff65c9bd;
     boolean gridVisible=true,travelVisible=true;
     double seconds=Double.POSITIVE_INFINITY;
@@ -79,7 +82,9 @@ final class MeshRenderer implements GLSurfaceView.Renderer {
         GLES20.glUseProgram(program);
         float aspect=(float)width/height;
         float distance=4.8f/Math.min(1,aspect)/zoom;
-        Matrix.perspectiveM(projection,0,45,aspect,Math.max(0.001f,distance/1000),distance+10);
+        float radius=scene==null?1.5f:Math.max(scene.radius,gridVisible?scene.gridRadius:0);
+        ClipPlanes clip=ClipPlanes.fit(distance,radius);
+        Matrix.perspectiveM(projection,0,45,aspect,clip.near,clip.far);
         Matrix.setLookAtM(view,0,0,0,distance,0,0,0,0,1,0);
         Matrix.setIdentityM(transform,0);Matrix.rotateM(transform,0,pitch,1,0,0);Matrix.rotateM(transform,0,yaw,0,0,1);
         Matrix.multiplyMM(mv,0,view,0,transform,0);Matrix.multiplyMM(combined,0,projection,0,mv,0);

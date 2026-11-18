@@ -8,4 +8,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 }
-dependencies { api(project(":mesh-core")) }
+dependencies {
+    api(project(":mesh-core"))
+    testImplementation("junit:junit:4.13.2")
+}

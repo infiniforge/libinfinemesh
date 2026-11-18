@@ -54,16 +54,21 @@ thread: `setShading(Shading.WIREFRAME/FLAT/GOURAUD)`, `setColors(ARGB, ARGB)`,
 `resetZoom`, `zoomBy`. Host owns its preview clock and settings. Drag and pinch are
 built in; +/- or other accessible zoom controls can call `zoomBy`.
 
-Gouraud uses vertex lighting with interpolated intensity; flat mode repeats the
+Flat shading is the default. Gouraud uses vertex lighting with interpolated intensity; flat mode repeats the
 same face normal at all three vertices. Wireframe includes triangle diagonals.
 G-code is line geometry in every shading mode. Hidden travel still consumes time.
 The ground grid follows source bounds and is not a physical measurement scale.
+The EGL configuration prefers 24-bit depth with a 16-bit fallback. Clipping planes
+fit a rotation-invariant bounding sphere of the normalized geometry and visible
+grid to preserve separation between close faces. This replaces the original
+16-bit buffer and an almost-zero near plane that wasted depth precision.
+Exactly coplanar overlapping surfaces can still compete for depth.
 CPU arrays survive GL context recreation. Color setters apply to all untextured
 surface/printed path geometry. Travel is gray and the head amber.
 
 ## Extension and compatibility
 
-Initial API version: 0.1.0. Only triangle soup and toolpaths are represented.
+Current API version: 0.1.1. Only triangle soup and toolpaths are represented.
 Indexed meshes, scenes, texture resources, UVs and materials need future public
 API extensions; do not treat the decoder registry as existing texture support.
 No application identity, file picker or private app data belongs to this library.

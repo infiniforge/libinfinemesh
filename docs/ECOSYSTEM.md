@@ -138,15 +138,15 @@ The inventory contains 10 applications (5 with standalone builds and 5 planned p
 
 #### [infinimesh](https://github.com/infiniforge/infinimesh)
 
-**State:** active · **Build:** standalone app build · **Versions:** no published release verified; build declares `0.1.0`
+**State:** active · **Build:** standalone app build · **Versions:** no published release verified; build declares `0.1.1`
 
-**Purpose:** Standalone read-only Android 3D model and G-code viewer. Owns model opening through SAF/granted intents, viewer controls, G-code playback clock, lifecycle and app preferences. Shared parsers and rendering belong to libinfinemesh; no editing, slicing or printer control.
+**Purpose:** Standalone read-only Android 3D model and G-code viewer. Owns read-only model presentation, viewer controls, G-code playback clock, lifecycle and app preferences. Uses libinfiniselect for file selection, grant-aware reads and durable source resolution; shared mesh parsing and rendering belong to libinfinemesh. No editing, slicing or printer control.
 
-**Pinned source dependency closure:** [libinfinemesh](https://github.com/infiniforge/libinfinemesh)
+**Pinned source dependency closure:** [libinfinemesh](https://github.com/infiniforge/libinfinemesh), [libinfiniselect](https://github.com/infiniforge/libinfiniselect)
 
 **Exact dependency pins:** [dependencies.lock.json](https://github.com/infiniforge/infinimesh/blob/main/dependencies.lock.json)
 
-**Optional/runtime integrations:** None recorded
+**Optional/runtime integrations:** [infinifolder](https://github.com/infiniforge/infinifolder)
 
 **Public API and architecture documentation:** [APPLICATION.md](https://github.com/infiniforge/infinimesh/blob/main/docs/APPLICATION.md), [architecture.md](https://github.com/infiniforge/infinimesh/blob/main/docs/architecture.md)
 
@@ -308,7 +308,7 @@ The inventory contains 10 applications (5 with standalone builds and 5 planned p
 
 #### [libinfinemesh](https://github.com/infiniforge/libinfinemesh)
 
-**State:** active · **Build:** standalone library build · **Versions:** no published release verified; build declares `0.1.0`
+**State:** active · **Build:** standalone library build · **Versions:** no published release verified; build declares `0.1.1`
 
 **Purpose:** Reusable read-only model geometry, STL decoding, G-code simulation and Android 3D rendering. Owns portable geometry and normals, decoder registry, STL and explicit G-code dialect parsing, timed toolpaths and reusable GLES viewer surface. Applications own URI access, lifecycle, playback clocks and settings. Texture support and other formats are planned.
 

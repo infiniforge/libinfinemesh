@@ -5,6 +5,9 @@ import android.opengl.GLSurfaceView;
 import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
 import io.github.gretchycat.infinemesh.ModelDocument;
+import javax.microedition.khronos.egl.EGL10;
+import javax.microedition.khronos.egl.EGLConfig;
+import javax.microedition.khronos.egl.EGLDisplay;
 
 /** Reusable viewer surface. Host owns loading, lifecycle and playback clock. */
 public final class MeshView extends GLSurfaceView {
@@ -16,7 +19,7 @@ public final class MeshView extends GLSurfaceView {
     public MeshView(Context context) {
         super(context);
         setEGLContextClientVersion(2);
-        setEGLConfigChooser(8,8,8,8,16,0);
+        setEGLConfigChooser(MeshView::chooseDepthConfig);
         setRenderer(renderer); setRenderMode(RENDERMODE_WHEN_DIRTY);
         scale=new ScaleGestureDetector(context,new ScaleGestureDetector.SimpleOnScaleGestureListener() {
             @Override public boolean onScale(ScaleGestureDetector detector) {
@@ -24,6 +27,29 @@ public final class MeshView extends GLSurfaceView {
             }
         });
         setContentDescription("3D viewer. Drag to rotate, pinch to zoom. Reset buttons are above the view.");
+    }
+    private static EGLConfig chooseDepthConfig(EGL10 egl,EGLDisplay display) {
+        // Request 24-bit depth first; retain 16-bit devices with the tightly fitted frustum.
+        for(int depth:new int[]{24,16}) {
+            int[] attributes={EGL10.EGL_RED_SIZE,8,EGL10.EGL_GREEN_SIZE,8,EGL10.EGL_BLUE_SIZE,8,
+                EGL10.EGL_ALPHA_SIZE,8,EGL10.EGL_DEPTH_SIZE,depth,
+                EGL10.EGL_SURFACE_TYPE,EGL10.EGL_WINDOW_BIT,0x3040,4,EGL10.EGL_NONE};
+            int[] count=new int[1];
+            if(!egl.eglChooseConfig(display,attributes,null,0,count) || count[0]==0) continue;
+            EGLConfig[] configs=new EGLConfig[count[0]];
+            if(!egl.eglChooseConfig(display,attributes,configs,configs.length,count)) continue;
+            EGLConfig best=configs[0];int bestScore=Integer.MAX_VALUE;
+            for(EGLConfig config:configs) {
+                int[] value=new int[1];
+                egl.eglGetConfigAttrib(display,config,EGL10.EGL_DEPTH_SIZE,value);
+                int score=Math.abs(value[0]-depth);
+                egl.eglGetConfigAttrib(display,config,EGL10.EGL_SAMPLES,value);
+                score+=value[0]*32;
+                if(score<bestScore) { best=config;bestScore=score; }
+            }
+            return best;
+        }
+        throw new IllegalStateException("No GLES 2.0 display configuration with a depth buffer");
     }
     /** Call on a worker: buffer and normal preparation can be expensive. Safe after pause. */
     public void setDocument(ModelDocument document) {
